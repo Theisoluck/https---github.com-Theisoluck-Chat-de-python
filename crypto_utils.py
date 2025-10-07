@@ -1,67 +1,50 @@
-from Crypto.Cipher import AES
-from Crypto.Protocol.KDF import scrypt
-import json
-import base64
-import logging
+from Crypto.Cipher import PKCS1_OAEP
+from Crypto.PublicKey import RSA
+import json, base64
 
-# Configurar logging para depuración (opcional)
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
-logger = logging.getLogger(__name__)
+# --- Constantes RSA ---
+RSA_KEY_SIZE = 2048 # Tamaño estándar
+# Máximo de bytes de datos que podemos cifrar en un solo bloque (2048/8) - 42 bytes de padding
+MAX_PLAINTEXT_BYTES = 214 
 
-# ⚠️ IMPORTANTE: Esta sal debe ser idéntica en cliente y servidor
-FIXED_SALT = b"sal-fija-chat-2024"
+# --- Funciones RSA (Asimétrico Exclusivo) ---
 
-def derive_key(password: str):
-    """Deriva una clave AES de 32 bytes a partir de una contraseña."""
-    key = scrypt(password.encode(), FIXED_SALT, 32, N=2**14, r=8, p=1)
-    logger.info(f"🔑 Clave derivada: {key.hex()[:16]}... (longitud: {len(key)} bytes)")
-    return key
+def generate_rsa_key_pair():
+    """Genera un par de claves RSA de 2048 bits (privada y pública)."""
+    key = RSA.generate(RSA_KEY_SIZE)
+    private_key = key.export_key()
+    public_key = key.publickey().export_key()
+    return private_key, public_key
 
-def encrypt_json(data: dict, key: bytes) -> str:
-    """Cifra un diccionario a JSON seguro."""
-    plaintext = json.dumps(data).encode()
-    logger.debug(f"📨 Cifrando mensaje tipo: {data.get('type', 'unknown')}")
+def encrypt_rsa_message(data: dict, public_key_pem: bytes) -> str:
+    """
+    Cifra un diccionario JSON usando la clave pública RSA.
+    ADVERTENCIA: Solo puede cifrar mensajes de hasta 214 bytes de longitud.
+    """
+    plaintext = json.dumps(data).encode('utf-8')
     
-    cipher = AES.new(key, AES.MODE_GCM)
-    ciphertext, tag = cipher.encrypt_and_digest(plaintext)
-    
-    result = {
-        "nonce": base64.b64encode(cipher.nonce).decode(),
-        "tag": base64.b64encode(tag).decode(),
-        "data": base64.b64encode(ciphertext).decode(),
-    }
-    
-    encrypted_json = json.dumps(result)
-    logger.debug(f"🔒 Mensaje cifrado ({len(encrypted_json)} bytes)")
-    return encrypted_json
-
-def decrypt_json(encrypted_json: str, key: bytes) -> dict:
-    """Descifra un JSON cifrado y devuelve el diccionario original."""
-    try:
-        obj = json.loads(encrypted_json)
-        nonce = base64.b64decode(obj["nonce"])
-        tag = base64.b64decode(obj["tag"])
-        ciphertext = base64.b64decode(obj["data"])
+    if len(plaintext) > MAX_PLAINTEXT_BYTES:
+        raise ValueError(f"Mensaje demasiado largo ({len(plaintext)} bytes). RSA solo soporta hasta {MAX_PLAINTEXT_BYTES} bytes por mensaje.")
         
-        cipher = AES.new(key, AES.MODE_GCM, nonce=nonce)
-        plaintext = cipher.decrypt_and_verify(ciphertext, tag)
-        
-        data = json.loads(plaintext)
-        logger.debug(f"📬 Mensaje descifrado tipo: {data.get('type', 'unknown')}")
-        return data
-    except Exception as e:
-        logger.error(f"❌ Error al descifrar: {e}")
-        raise
-
-def verify_encryption(password: str) -> bool:
-    """Verifica que el cifrado funciona correctamente."""
-    test_key = derive_key(password)
-    test_data = {"type": "test", "message": "Hola mundo"}
+    rsa_key = RSA.import_key(public_key_pem)
+    cipher_rsa = PKCS1_OAEP.new(rsa_key)
     
-    try:
-        encrypted = encrypt_json(test_data, test_key)
-        decrypted = decrypt_json(encrypted, test_key)
-        return decrypted == test_data
-    except Exception as e:
-        logger.error(f"❌ Verificación fallida: {e}")
-        return False
+    encrypted_bytes = cipher_rsa.encrypt(plaintext)
+    
+    # Devolver los bytes cifrados codificados en Base64 y como string JSON
+    result = {"data": base64.b64encode(encrypted_bytes).decode()}
+    return json.dumps(result)
+
+def decrypt_rsa_message(encrypted_json: str, private_key_pem: bytes) -> dict:
+    """
+    Descifra un JSON cifrado usando la clave privada RSA.
+    """
+    obj = json.loads(encrypted_json)
+    encrypted_bytes = base64.b64decode(obj["data"])
+
+    rsa_key = RSA.import_key(private_key_pem)
+    cipher_rsa = PKCS1_OAEP.new(rsa_key)
+    
+    plaintext = cipher_rsa.decrypt(encrypted_bytes)
+    
+    return json.loads(plaintext.decode('utf-8'))
