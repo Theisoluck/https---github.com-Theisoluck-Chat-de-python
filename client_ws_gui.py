@@ -1,6 +1,6 @@
 # client_ws_gui.py
-# Cliente GUI Tkinter para chat LAN vía WebSockets
-# Requisitos: pip install websockets eres gay
+# Cliente GUI Tkinter para chat LAN vía WebSockets CON CIFRADO
+# Requisitos: pip install websockets pycryptodome
 
 import asyncio
 import json
