@@ -8,7 +8,7 @@ from tkinter import simpledialog, scrolledtext
 import websockets
 from crypto_utils import derive_key, encrypt_json, decrypt_json
 
-SERVER_HOST = "192.168.111.230"
+SERVER_HOST = "192.168.108.180"
 SERVER_PORT = 8765
 SECRET_PASSWORD = "mi-clave-secreta-chat-lan-2024"
 key = derive_key(SECRET_PASSWORD)
@@ -149,4 +149,3 @@ if __name__ == "__main__":
     app = ChatApp(root)
     root.mainloop()
 
-# server_ws.py

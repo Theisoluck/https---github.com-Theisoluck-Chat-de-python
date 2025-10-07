@@ -5,7 +5,7 @@ from datetime import datetime
 import websockets
 from crypto_utils import derive_key, encrypt_json, decrypt_json
 
-HOST = "192.168.111.230"
+HOST = "0.0.0.0"
 PORT = 8765
 HISTORY_MAX = 50
 
