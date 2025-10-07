@@ -1,15 +1,22 @@
 # server_ws.py
-# Servidor WebSocket de chat LAN (sala única)
-# Requisitos: pip install websockets
+# Servidor WebSocket de chat LAN (sala única) CON CIFRADO
+# Requisitos: pip install websockets pycryptodome
 
 import asyncio
 import json
 from datetime import datetime
 import websockets
 
+# Importar utilidades de cifrado
+from crypto_utils import derive_key, encrypt_json, decrypt_json
+
 HOST = "0.0.0.0"   # Escucha en todas las interfaces LAN
 PORT = 8765
 HISTORY_MAX = 50
+
+# Clave compartida para el cifrado (DEBE SER LA MISMA EN CLIENTE Y SERVIDOR)
+SECRET_PASSWORD = "mi-clave-secreta-chat-lan-2024"
+key, salt = derive_key(SECRET_PASSWORD)
 
 # Conjunto de websockets conectados
 clients = set()
@@ -18,11 +25,12 @@ history = []
 
 
 async def broadcast(payload: dict):
-    """Enviar payload (dict) a todos los clientes como texto JSON."""
+    """Enviar payload (dict) cifrado a todos los clientes."""
     if not clients:
         return
-    msg = json.dumps(payload, ensure_ascii=False)
-    await asyncio.gather(*[ws.send(msg) for ws in list(clients)], return_exceptions=True)
+    # Cifrar el mensaje antes de enviarlo
+    encrypted_msg = encrypt_json(payload, key)
+    await asyncio.gather(*[ws.send(encrypted_msg) for ws in list(clients)], return_exceptions=True)
 
 
 async def register(ws):
@@ -40,16 +48,20 @@ def now_ts():
 async def handler(ws):
     await register(ws)
     try:
-        # Al conectar, enviar historial reciente
+        # Al conectar, enviar historial reciente CIFRADO
         if history:
-            await ws.send(json.dumps({"type": "history", "items": history}, ensure_ascii=False))
+            encrypted_history = encrypt_json({"type": "history", "items": history}, key)
+            await ws.send(encrypted_history)
 
-        async for raw in ws:
+        async for encrypted_raw in ws:
             try:
-                data = json.loads(raw)
-            except json.JSONDecodeError:
-                # Mensaje no-JSON: lo descartamos o lo envolvemos
-                data = {"type": "msg", "user": "Desconocido", "text": raw}
+                # Descifrar el mensaje recibido
+                data = decrypt_json(encrypted_raw, key)
+            except (json.JSONDecodeError, ValueError) as e:
+                # Mensaje no válido o error de descifrado
+                error_msg = encrypt_json({"type": "error", "text": f"Error de descifrado: {e}"}, key)
+                await ws.send(error_msg)
+                continue
 
             mtype = data.get("type", "msg")
 
@@ -79,18 +91,20 @@ async def handler(ws):
 
             else:
                 # Tipos no soportados
-                await ws.send(json.dumps(
+                error_response = encrypt_json(
                     {"type": "error", "text": "tipo no soportado"},
-                    ensure_ascii=False
-                ))
+                    key
+                )
+                await ws.send(error_response)
     finally:
         await unregister(ws)
 
 
 async def main():
     stop = asyncio.Future()
+    print(f"🔐 Servidor WebSocket CON CIFRADO escuchando en ws://{HOST}:{PORT}")
+    print(f"📝 Usando cifrado AES-GCM con clave derivada de contraseña")
     async with websockets.serve(handler, HOST, PORT, ping_interval=20, ping_timeout=20):
-        print(f"Servidor WebSocket escuchando en ws://{HOST}:{PORT}")
         await stop  # quedará pendiente hasta que lo canceles manualmente con Ctrl+C
 
 

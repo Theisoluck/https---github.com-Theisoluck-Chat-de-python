@@ -1,6 +1,6 @@
 # client_ws_gui.py
-# Cliente GUI Tkinter para chat LAN vía WebSockets
-# Requisitos: pip install websockets eres gay
+# Cliente GUI Tkinter para chat LAN vía WebSockets CON CIFRADO
+# Requisitos: pip install websockets pycryptodome
 
 import asyncio
 import json
@@ -10,8 +10,15 @@ import tkinter as tk
 from tkinter import simpledialog, scrolledtext, messagebox
 import websockets
 
-SERVER_HOST = "127.0.0.1"  # Cambia a la IP del servidor en la LAN, e.g. "192.168.1.50"
+# Importar utilidades de cifrado
+from crypto_utils import derive_key, encrypt_json, decrypt_json
+
+SERVER_HOST = "192.168.110.10"  # Cambia a la IP del servidor en la LAN
 SERVER_PORT = 8765
+
+# Clave compartida para el cifrado (DEBE SER LA MISMA EN CLIENTE Y SERVIDOR)
+SECRET_PASSWORD = "mi-clave-secreta-chat-lan-2024"
+key, salt = derive_key(SECRET_PASSWORD)
 
 class WSClientThread(threading.Thread):
     def __init__(self, username, server_url, inbound_q: queue.Queue, outbound_q: queue.Queue, on_disconnect):
@@ -29,27 +36,32 @@ class WSClientThread(threading.Thread):
     async def ws_loop(self):
         try:
             async with websockets.connect(self.server_url) as ws:
-                # Anunciar ingreso
-                await ws.send(json.dumps({"type": "join", "user": self.username}, ensure_ascii=False))
+                # Anunciar ingreso (CIFRADO)
+                join_msg = encrypt_json({"type": "join", "user": self.username}, key)
+                await ws.send(join_msg)
                 self.inbound_q.put({"type": "system", "text": f"Conectado a {self.server_url} como {self.username}"})
+                self.inbound_q.put({"type": "system", "text": "🔐 Comunicación cifrada activa"})
 
                 async def recv_task():
-                    async for raw in ws:
+                    async for encrypted_raw in ws:
                         try:
-                            data = json.loads(raw)
-                        except json.JSONDecodeError:
-                            data = {"type": "msg", "user": "Srv", "text": raw}
+                            # Descifrar mensaje recibido
+                            data = decrypt_json(encrypted_raw, key)
+                        except (json.JSONDecodeError, ValueError) as e:
+                            data = {"type": "error", "text": f"Error descifrando mensaje: {e}"}
                         self.inbound_q.put(data)
 
                 async def send_task():
                     while not self.stop_flag.is_set():
                         try:
-                            item = await asyncio.get_event_loop().run_in_executor(None, self.outbound_q.get)
+                            # Obtener mensaje para enviar (ya cifrado desde la GUI)
+                            encrypted_item = await asyncio.get_event_loop().run_in_executor(None, self.outbound_q.get)
                         except Exception:
                             continue
-                        if item is None:
+                        if encrypted_item is None:
                             break
-                        await ws.send(json.dumps(item, ensure_ascii=False))
+                        # El mensaje ya viene cifrado, solo enviar
+                        await ws.send(encrypted_item)
 
                 await asyncio.gather(recv_task(), send_task())
         except Exception as e:
@@ -63,7 +75,7 @@ class WSClientThread(threading.Thread):
 class ChatApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("Chat LAN (WebSocket)")
+        self.root.title("Chat LAN (WebSocket) 🔐")
 
         # --- UI ---
         top = tk.Frame(root)
@@ -79,7 +91,7 @@ class ChatApp:
         self.entry.pack(side="left", fill="x", expand=True)
         self.entry.bind("<Return>", self.send_msg)
 
-        self.btn = tk.Button(entry_frame, text="Enviar", command=self.send_msg)
+        self.btn = tk.Button(entry_frame, text="Enviar 🔒", command=self.send_msg)
         self.btn.pack(side="left", padx=(6, 0))
 
         # --- estado ---
@@ -149,7 +161,11 @@ class ChatApp:
         text = self.entry.get().strip()
         if not text:
             return
-        self.outbound_q.put({"type": "msg", "user": self.username, "text": text})
+        
+        # Cifrar el mensaje antes de ponerlo en la cola
+        payload = {"type": "msg", "user": self.username, "text": text}
+        encrypted_payload = encrypt_json(payload, key)
+        self.outbound_q.put(encrypted_payload)
         self.entry.delete(0, "end")
 
     def on_disconnect(self):
@@ -158,8 +174,9 @@ class ChatApp:
 
     def on_close(self):
         try:
-            # Notificar salida y cerrar hilo
-            self.outbound_q.put({"type": "leave", "user": self.username})
+            # Notificar salida (CIFRADO) y cerrar hilo
+            leave_msg = encrypt_json({"type": "leave", "user": self.username}, key)
+            self.outbound_q.put(leave_msg)
             self.outbound_q.put(None)
             self.ws_thread.stop()
         except:
