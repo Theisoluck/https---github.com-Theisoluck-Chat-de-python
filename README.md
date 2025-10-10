@@ -1,206 +1,88 @@
-import asyncio
-import json
-import threading
-import queue
-import tkinter as tk
-from tkinter import simpledialog, scrolledtext
-import websockets
-from crypto_utils import generate_rsa_key_pair, encrypt_rsa_message, decrypt_rsa_message, MAX_PLAINTEXT_BYTES
+Chat LAN - Proyecto de ejemplo (readme)
 
-SERVER_HOST = "192.168.111.230"
-SERVER_PORT = 8765
+Resumen
+-------
+Esta pequeña colección de scripts implementa un chat LAN cifrado usando WebSockets y cifrado simétrico (AES-GCM). El proyecto contiene:
 
-class WSClientThread(threading.Thread):
-    def __init__(self, username, server_url, inbound_q, outbound_q, on_disconnect):
-        super().__init__(daemon=True)
-        self.username = username
-        self.server_url = server_url
-        self.inbound_q = inbound_q
-        self.outbound_q = outbound_q
-        self.on_disconnect = on_disconnect
-        self.stop_flag = threading.Event()
-        
-        # Claves RSA del cliente: Privada (para descifrar) y Pública (para el servidor)
-        self.client_private_key, self.client_public_key = generate_rsa_key_pair()
-        
-        # Clave pública RSA del servidor (se recibe en el handshake, para cifrar)
-        self.server_public_key = None 
+- `server_ws.py`: servidor WebSocket que mantiene el historial y retransmite mensajes cifrados a todos los clientes conectados.
+- `client_ws_gui.py`: cliente con interfaz gráfica (Tkinter) que se conecta al servidor, envía/recibe mensajes cifrados y muestra notificaciones del sistema.
+- `crypto_utils.py`: utilidades de cifrado (derivación de clave con scrypt, cifrado/descifrado con AES-GCM) y funciones de verificación.
 
-    def stop(self):
-        self.stop_flag.set()
+Requisitos
+----------
+- Python 3.10+ (probado con 3.11/3.12)
+- PyCryptodome (para AES/GCM y scrypt)
+- websockets (para WebSocket server/client)
+- tkinter (incluido con la mayoría de instalaciones de Python en Windows)
 
-    async def ws_loop(self):
-        try:
-            async with websockets.connect(self.server_url) as ws:
-                
-                # --- PASO 1: Handshake RSA (Intercambio de Claves) ---
-                if not await self.handle_key_exchange(ws):
-                    self.inbound_q.put({"type": "error", "text": "Falló la negociación de claves RSA."})
-                    return
+Instalación (Windows - PowerShell)
+---------------------------------
+# Crear un entorno virtual (opcional, recomendado)
+python -m venv .venv; .\.venv\Scripts\Activate.ps1
 
-                # Si el handshake fue exitoso, notificar la conexión
-                self.inbound_q.put({"type": "system", "text": f"Conectado a {self.server_url} como {self.username}"})
-                self.inbound_q.put({"type": "system", "text": f"🔐 Cifrado RSA exclusivo activo. Límite de mensaje: {MAX_PLAINTEXT_BYTES} bytes."})
+# Instalar dependencias
+python -m pip install --upgrade pip; python -m pip install pycryptodome websockets
 
-                # Enviar mensaje de JOIN cifrado con la clave pública del servidor
-                join_msg = encrypt_rsa_message({"type": "join", "user": self.username}, self.server_public_key)
-                await ws.send(join_msg)
+Archivos y responsabilidades
+----------------------------
+1) `crypto_utils.py`
+   - Deriva una clave AES de 32 bytes desde una contraseña usando `scrypt` y una SAL fija (`FIXED_SALT`).
+   - `encrypt_json(data, key)`: cifra un diccionario serializado a JSON usando AES-GCM. Devuelve un JSON con `nonce`, `tag` y `data` (todo en base64).
+   - `decrypt_json(encrypted_json, key)`: valida y descifra el JSON cifrado, devuelve el diccionario original.
+   - `verify_encryption(password)`: función de prueba que cifra/descifra un mensaje de test.
 
-                # Tareas de envío y recepción
-                await asyncio.gather(self.recv_task(ws), self.send_task(ws))
-                
-        except Exception as e:
-            self.inbound_q.put({"type": "system", "text": f"Desconectado del servidor: {e}"})
-        finally:
-            self.on_disconnect()
+   Nota de seguridad: la SAL (`FIXED_SALT`) actualmente está codificada en el código y debe ser la misma en cliente y servidor. Para producción, usar una sal por usuario/instancia y canales seguros para intercambio de parámetros.
 
-    async def handle_key_exchange(self, ws):
-        """Recibe la clave pública RSA del servidor y envía la del cliente."""
-        
-        # 1. Recibir la clave pública RSA del servidor
-        initial_response = await ws.recv()
-        data = json.loads(initial_response)
-        
-        if data.get("type") != "server_public_key":
-            return False
+2) `server_ws.py`
+   - Ejecuta un servidor WebSocket en `HOST:PORT` (por defecto `0.0.0.0:8765`).
+   - Al conectar un cliente envía el historial reciente (últimos 50 eventos) cifrado.
+   - Maneja tipos de mensajes: `join`, `msg`, `leave` y retransmite eventos a todos los clientes (usando `encrypt_json`).
+   - Mantiene `history` (lista) y `clients` (set de websockets).
 
-        self.server_public_key = data["key"].encode()
+3) `client_ws_gui.py`
+   - Interfaz gráfica Tkinter: cuadro de texto con desplazamiento, campo de entrada y botón "Enviar".
+   - `WSClientThread` se encarga de la conexión websocket en un hilo aparte; usa `queue.Queue` para comunicar inbound/outbound con el hilo de la GUI.
+   - Al iniciar se pide nombre de usuario e IP del servidor; construye `ws://<ip>:8765`.
+   - Los mensajes se cifran con `encrypt_json` antes de enviarse y se descifran con `decrypt_json` al recibir.
+   - Manejo de cierre: envía un mensaje `leave` y marca la cola con `None` para terminar el hilo de envío.
 
-        # 2. Enviar nuestra clave pública al servidor
-        key_exchange_payload = json.dumps({
-            "type": "client_public_key", 
-            "key": self.client_public_key.decode()
-        })
-        await ws.send(key_exchange_payload)
-        
-        return True
+Cómo ejecutar
+-------------
+1) Ejecutar el servidor en la máquina que actuará como host (ejecutar en PowerShell):
+python server_ws.py
 
-    async def recv_task(self, ws):
-        async for encrypted_raw in ws:
-            try:
-                # Descifrar con la CLAVE PRIVADA del cliente
-                data = decrypt_rsa_message(encrypted_raw, self.client_private_key)
-            except Exception as e:
-                # Si el mensaje no se puede descifrar, puede ser un error, o un mensaje no destinado a nosotros.
-                data = {"type": "error", "text": f"Error descifrando mensaje RSA (privada de cliente): {e}"}
-            self.inbound_q.put(data)
+2) Ejecutar el cliente en cualquier equipo de la LAN que pueda alcanzar al servidor:
+python client_ws_gui.py
 
-    async def send_task(self, ws):
-        while not self.stop_flag.is_set():
-            try:
-                # Recibir payload cifrado de la GUI (Cola de salida)
-                encrypted_item = await asyncio.get_event_loop().run_in_executor(None, self.outbound_q.get)
-                if encrypted_item is None:
-                    break
-                await ws.send(encrypted_item)
-            except Exception:
-                break
+Nota: al abrir el cliente se solicitará "Nombre" y "IP del servidor". Introduce la IP LAN del host donde corre `server_ws.py`.
 
-    def run(self):
-        asyncio.run(self.ws_loop())
+Verificaciones rápidas
+----------------------
+- Probar `crypto_utils.verify_encryption("mi-clave-secreta-chat-lan-2024")` en un REPL para validar cifrado/descifrado.
+- Conectar múltiples clientes al servidor y enviar mensajes; verificar que todos reciben los mensajes y el historial al conectar.
 
-class ChatApp:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("Chat LAN RSA Exclusivo 🔐")
+Problemas comunes y soluciones
+------------------------------
+- Error de importación `Crypto.Cipher` o `Crypto.Protocol.KDF`: asegúrate de tener `pycryptodome` instalado (no `pycrypto`).
+- `PermissionError` al abrir puerto: Windows puede bloquear puertos con firewall; permitir la aplicación o usar un puerto alto (>1024) o ejecutar PowerShell como administrador para pruebas.
+- Mensajes "Error descifrando mensaje": esto ocurre si la contraseña/clave no coincide entre cliente y servidor. Asegúrate de usar la misma `SECRET_PASSWORD` o deriva la clave con la misma sal y parámetros.
+- Problemas con salt fija: compartir la SAL en claro y la contraseña por canales inseguros puede exponer el sistema. Considera usar intercambio de claves o TLS para producción.
 
-        # --- Configuración de la GUI (omito por brevedad, es igual) ---
-        top = tk.Frame(root)
-        top.pack(fill="both", expand=True, padx=10, pady=10)
+Mejoras sugeridas (próximos pasos)
+----------------------------------
+- Reemplazar `FIXED_SALT` por una sal dinámica y negociar parámetros con TLS o un canal seguro.
+- Añadir autenticación (usuarios/contraseñas) y control de acceso.
+- Añadir firma HMAC o uso de modos AEAD correctamente (AES-GCM ya provee integridad, pero firmas adicionales pueden ayudar a interoperabilidad).
+- Proteger el servidor con TLS (wss://) para evitar MITM en la negociación de WebSocket.
+- Añadir tests unitarios para `crypto_utils.py`.
 
-        self.txt = scrolledtext.ScrolledText(top, state="disabled", wrap="word", height=20)
-        self.txt.pack(fill="both", expand=True)
+Licencia y atribuciones
+-----------------------
+Código de ejemplo para uso educativo. Recomendado revisar requisitos legales y de seguridad antes de desplegar en producción.
 
-        entry_frame = tk.Frame(top)
-        entry_frame.pack(fill="x", pady=(8, 0))
+Contacto
+--------
+Repositorio original: https://github.com/Theisoluck/Chat-de-python
 
-        self.entry = tk.Entry(entry_frame)
-        self.entry.pack(side="left", fill="x", expand=True)
-        self.entry.bind("<Return>", self.send_msg)
-
-        self.btn = tk.Button(entry_frame, text="Enviar (RSA) 🔒", command=self.send_msg)
-        self.btn.pack(side="left", padx=(6, 0))
-        
-        # --- Configuración de Conexión ---
-        self.username = simpledialog.askstring("Nombre", "Introduce tu nombre:", parent=self.root) or "Anon"
-        server_ip = simpledialog.askstring("Servidor", "IP del servidor:", parent=self.root) or SERVER_HOST
-        self.server_url = f"ws://{server_ip}:{SERVER_PORT}"
-
-        self.inbound_q = queue.Queue()
-        self.outbound_q = queue.Queue()
-
-        self.ws_thread = WSClientThread(self.username, self.server_url, self.inbound_q, self.outbound_q, self.on_disconnect)
-        self.ws_thread.start()
-
-        self.root.after(100, self.process_inbound)
-        self.root.protocol("WM_DELETE_WINDOW", self.on_close)
-
-    def append_text(self, text):
-        self.txt.configure(state="normal")
-        self.txt.insert("end", text + "\n")
-        self.txt.see("end")
-        self.txt.configure(state="disabled")
-
-    def process_inbound(self):
-        try:
-            while True:
-                data = self.inbound_q.get_nowait()
-                self.render_item(data)
-        except queue.Empty:
-            pass
-        self.root.after(100, self.process_inbound)
-
-    def render_item(self, item):
-        t = item.get("time", "--:--:--")
-        dtype = item.get("type")
-        if dtype == "msg":
-            self.append_text(f"[{t}] {item.get('user', 'Anon')}: {item.get('text', '')}")
-        elif dtype == "system":
-            self.append_text(f"[{t}] {item.get('text', '')}")
-        elif dtype == "error":
-            self.append_text(f"⚠️ Error: {item.get('text', '')}")
-        else:
-            self.append_text(str(item))
-
-    def send_msg(self, event=None):
-        text = self.entry.get().strip()
-        if not text:
-            return
-            
-        # El cliente cifra con la clave pública del SERVIDOR
-        server_pub_key = self.ws_thread.server_public_key
-        if not server_pub_key:
-             self.append_text(f"⚠️ Error: Aún no se recibe la clave pública del servidor.")
-             return
-
-        payload = {"type": "msg", "user": self.username, "text": text}
-        
-        try:
-            # Cifrar con la clave pública del SERVIDOR
-            encrypted_payload = encrypt_rsa_message(payload, server_pub_key) 
-            self.outbound_q.put(encrypted_payload)
-            self.entry.delete(0, "end")
-        except ValueError as e:
-            # Capturar error de longitud antes de enviarlo
-            self.append_text(f"❌ FALLO DE CIFRADO: {e}")
-            
-    def on_disconnect(self):
-        pass
-
-    def on_close(self):
-        try:
-            # Enviar mensaje de salida cifrado (si el servidor ya compartió su clave)
-            if self.ws_thread.server_public_key:
-                leave_msg = encrypt_rsa_message({"type": "leave", "user": self.username}, self.ws_thread.server_public_key)
-                self.outbound_q.put(leave_msg)
-            
-            self.outbound_q.put(None)
-            self.ws_thread.stop()
-        except:
-            pass
-        self.root.destroy()
-
-if __name__ == "__main__":
-    root = tk.Tk()
-    app = ChatApp(root)
-    root.mainloop()
+---
+Generado automáticamente: descripción y guía de uso para los archivos actuales del proyecto.
