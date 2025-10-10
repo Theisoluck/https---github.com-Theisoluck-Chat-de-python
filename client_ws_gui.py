@@ -6,7 +6,7 @@ import queue
 import tkinter as tk
 from tkinter import simpledialog, scrolledtext
 import websockets
-from crypto_utils import derive_key, encrypt_json, decrypt_json
+from crypto_utils import derive_key, encrypt_json, decrypt_json, hash_sha256
 
 
 SERVER_HOST = "192.168.108.180"
@@ -33,7 +33,7 @@ class WSClientThread(threading.Thread):
                 join_msg = encrypt_json({"type": "join", "user": self.username}, key)
                 await ws.send(join_msg)
                 self.inbound_q.put({"type": "system", "text": f"Conectado a {self.server_url} como {self.username}"})
-                self.inbound_q.put({"type": "system", "text": "🔐 Comunicación cifrada activa"})
+                self.inbound_q.put({"type": "system", "text": "Comunicacion con cifrado"})
 
                 async def recv_task():
                     async for encrypted_raw in ws:
@@ -65,7 +65,7 @@ class WSClientThread(threading.Thread):
 class ChatApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("Chat LAN 🔐")
+        self.root.title("Chat local")
 
         top = tk.Frame(root)
         top.pack(fill="both", expand=True, padx=10, pady=10)
@@ -115,11 +115,21 @@ class ChatApp:
         t = item.get("time", "--:--:--")
         dtype = item.get("type")
         if dtype == "msg":
-            self.append_text(f"[{t}] {item.get('user', 'Anon')}: {item.get('text', '')}")
+            text = item.get('text', '')
+            user = item.get('user', 'Anon')
+            
+            # Verificar integridad si hay un hash disponible
+            integrity_hash = item.get('integrity_hash')
+            if integrity_hash:
+                calculated_hash = hash_sha256(text)
+                if calculated_hash != integrity_hash:
+                    self.append_text(f"El mensaje de {user} ha sido alterado, favor de no compartir información sensible.")
+                
+            self.append_text(f"[{t}] {user}: {text}")
         elif dtype == "system":
             self.append_text(f"[{t}] {item.get('text', '')}")
         elif dtype == "error":
-            self.append_text(f"⚠️ Error: {item.get('text', '')}")
+            self.append_text(f"Error: {item.get('text', '')}")
         else:
             self.append_text(str(item))
 
@@ -127,7 +137,10 @@ class ChatApp:
         text = self.entry.get().strip()
         if not text:
             return
-        payload = {"type": "msg", "user": self.username, "text": text}
+        # Calcular hash SHA-256 del texto del mensaje para verificación de integridad
+        text_hash = hash_sha256(text)
+        # Incluir el hash en el payload
+        payload = {"type": "msg", "user": self.username, "text": text, "integrity_hash": text_hash}
         encrypted_payload = encrypt_json(payload, key)
         self.outbound_q.put(encrypted_payload)
         self.entry.delete(0, "end")

@@ -3,7 +3,7 @@ import asyncio
 import json
 from datetime import datetime
 import websockets
-from crypto_utils import derive_key, encrypt_json, decrypt_json
+from crypto_utils import derive_key, encrypt_json, decrypt_json, hash_sha256
 
 HOST = "0.0.0.0"
 PORT = 8765
@@ -48,14 +48,26 @@ async def handler(ws):
             user = data.get("user", "Anon")
 
             if mtype == "join":
-                event = {"type": "system", "text": f"🟢 {user} se unió", "time": now_ts()}
+                event = {"type": "system", "text": f"{user} se unió", "time": now_ts()}
             elif mtype == "msg":
                 text = data.get("text", "").strip()
                 if not text:
                     continue
-                event = {"type": "msg", "user": user, "text": text, "time": now_ts()}
+                
+                # Obtener el hash si está presente en el mensaje original
+                integrity_hash = data.get("integrity_hash")
+                
+                # Si el mensaje tiene hash, verificamos su integridad silenciosamente
+                if integrity_hash:
+                    calculated_hash = hash_sha256(text)
+                    if calculated_hash != integrity_hash:
+                        print(f"El mensaje ha sido alterado")
+                
+                # Incluimos el hash original en el evento para los clientes
+                event = {"type": "msg", "user": user, "text": text, 
+                         "integrity_hash": integrity_hash, "time": now_ts()}
             elif mtype == "leave":
-                event = {"type": "system", "text": f"🔴 {user} salió", "time": now_ts()}
+                event = {"type": "system", "text": f" {user} salió", "time": now_ts()}
             else:
                 await ws.send(encrypt_json({"type": "error", "text": "Tipo no soportado"}, key))
                 continue
@@ -68,7 +80,7 @@ async def handler(ws):
         await unregister(ws)
 
 async def main():
-    print(f"🔐 Servidor escuchando en ws://{HOST}:{PORT}")
+    print(f"Servidor activo en://{HOST}:{PORT}")
     async with websockets.serve(handler, HOST, PORT, ping_interval=20, ping_timeout=20):
         await asyncio.Future()  # Mantener servidor activo
 
