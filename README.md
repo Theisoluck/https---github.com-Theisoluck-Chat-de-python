@@ -27,9 +27,11 @@ Archivos y responsabilidades
 ----------------------------
 1) `crypto_utils.py`
    - Deriva una clave AES de 32 bytes desde una contraseña usando `scrypt` y una SAL fija (`FIXED_SALT`).
-   - `encrypt_json(data, key)`: cifra un diccionario serializado a JSON usando AES-GCM. Devuelve un JSON con `nonce`, `tag` y `data` (todo en base64).
-   - `decrypt_json(encrypted_json, key)`: valida y descifra el JSON cifrado, devuelve el diccionario original.
-   - `verify_encryption(password)`: función de prueba que cifra/descifra un mensaje de test.
+   - `calculate_sha256(data)`: calcula un hash SHA-256 para verificar la integridad de los mensajes.
+   - `encrypt_json(data, key)`: cifra un diccionario serializado a JSON usando AES-GCM y añade un hash SHA-256 para verificación de integridad. Devuelve un JSON con `nonce`, `tag` y `data` (todo en base64).
+   - `decrypt_json(encrypted_json, key)`: valida el hash SHA-256, descifra el JSON cifrado, y devuelve el diccionario original.
+   - `verify_encryption(password)`: función de prueba que cifra/descifra un mensaje de test y verifica el hash SHA-256.
+   - `get_file_md5(file_path)`: calcula el hash MD5 de un archivo para control de cambios.
 
    Nota de seguridad: la SAL (`FIXED_SALT`) actualmente está codificada en el código y debe ser la misma en cliente y servidor. Para producción, usar una sal por usuario/instancia y canales seguros para intercambio de parámetros.
 
@@ -68,11 +70,41 @@ Problemas comunes y soluciones
 - Mensajes "Error descifrando mensaje": esto ocurre si la contraseña/clave no coincide entre cliente y servidor. Asegúrate de usar la misma `SECRET_PASSWORD` o deriva la clave con la misma sal y parámetros.
 - Problemas con salt fija: compartir la SAL en claro y la contraseña por canales inseguros puede exponer el sistema. Considera usar intercambio de claves o TLS para producción.
 
+Implementación de SHA-256 para integridad de mensajes
+----------------------------------------------------
+La aplicación ahora incluye verificación de integridad mediante SHA-256:
+
+1. **¿Cómo funciona?**
+   - Cuando se envía un mensaje, se calcula un hash SHA-256 del contenido original
+   - Este hash se añade al mensaje antes del cifrado AES-GCM
+   - Al recibir, primero se descifra y luego se verifica el hash SHA-256
+   - Si el hash no coincide, se rechaza el mensaje como posiblemente manipulado
+
+2. **Beneficios de seguridad:**
+   - Detección de manipulación de mensajes durante la transmisión
+   - Verificación adicional de integridad (complementa el tag de autenticación GCM)
+   - Protección contra ataques de replay modificados
+
+3. **Verificación:**
+   - La función `verify_encryption()` ahora también comprueba la integridad SHA-256
+   - Los mensajes modificados generarán errores de validación de hash
+
+MD5 Hashes de Control de Cambios
+--------------------------------
+Los siguientes hashes MD5 representan el estado actual de los archivos fuente:
+
+| Archivo | MD5 Hash |
+|---------|----------|
+| client_ws_gui.py | 0b3efa68919fb6154243b6900b0fd244 |
+| crypto_utils.py | 2a90f8f6c90e75279693f788a01670d8 |
+| server_ws.py | 8244eee7dbb6298e5019fe69be3027e1 |
+
+*Nota: Estos hashes se utilizan para control de versiones y verificación de integridad de los archivos fuente.*
+
 Mejoras sugeridas (próximos pasos)
 ----------------------------------
 - Reemplazar `FIXED_SALT` por una sal dinámica y negociar parámetros con TLS o un canal seguro.
 - Añadir autenticación (usuarios/contraseñas) y control de acceso.
-- Añadir firma HMAC o uso de modos AEAD correctamente (AES-GCM ya provee integridad, pero firmas adicionales pueden ayudar a interoperabilidad).
 - Proteger el servidor con TLS (wss://) para evitar MITM en la negociación de WebSocket.
 - Añadir tests unitarios para `crypto_utils.py`.
 
