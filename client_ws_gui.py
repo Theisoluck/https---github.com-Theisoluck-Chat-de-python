@@ -9,7 +9,7 @@ import websockets
 from crypto_utils import derive_key, encrypt_json, decrypt_json
 
 
-SERVER_HOST = "192.168.108.180"
+SERVER_HOST = "192.168.105.42"
 SERVER_PORT = 8765
 SECRET_PASSWORD = "mi-clave-secreta-chat-lan-2024"
 key = derive_key(SECRET_PASSWORD)
@@ -128,6 +128,13 @@ class ChatApp:
         if not text:
             return
         payload = {"type": "msg", "user": self.username, "text": text}
+        
+        # Calculate and display SHA-256 hash before encryption
+        from crypto_utils import calculate_sha256
+        msg_hash = calculate_sha256(payload)
+        print(f"\n🔒 Enviando mensaje con SHA-256: {msg_hash}")
+        print(f"📧 Mensaje original: {payload}")
+        
         encrypted_payload = encrypt_json(payload, key)
         self.outbound_q.put(encrypted_payload)
         self.entry.delete(0, "end")

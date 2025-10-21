@@ -88,18 +88,34 @@ La aplicación ahora incluye verificación de integridad mediante SHA-256:
 3. **Verificación:**
    - La función `verify_encryption()` ahora también comprueba la integridad SHA-256
    - Los mensajes modificados generarán errores de validación de hash
+   - Los hashes SHA-256 se muestran en la consola al enviar y recibir mensajes para depuración
 
 MD5 Hashes de Control de Cambios
 --------------------------------
 Los siguientes hashes MD5 representan el estado actual de los archivos fuente:
 
-| Archivo | MD5 Hash |
-|---------|----------|
-| client_ws_gui.py | 0b3efa68919fb6154243b6900b0fd244 |
-| crypto_utils.py | 2a90f8f6c90e75279693f788a01670d8 |
-| server_ws.py | 8244eee7dbb6298e5019fe69be3027e1 |
+| Archivo            |             MD5 Hash             |
+|--------------------|----------------------------------|
+| client_ws_gui.py   | 581e272cea079160950846dedf1fa6f2 |
+| crypto_utils.py    | 853c5e68ab93c4920f72289c1f5ae777 |
+| server_ws.py       | 8244eee7dbb6298e5019fe69be3027e1 |
 
 *Nota: Estos hashes se utilizan para control de versiones y verificación de integridad de los archivos fuente.*
+
+Visualización de hashes SHA-256 en consola
+----------------------------------------
+Para ayudar en el desarrollo y depuración, el sistema ahora muestra los hashes SHA-256 en la consola:
+
+1. **Al enviar mensajes:**
+   - Se muestra el hash SHA-256 calculado para el mensaje original
+   - Se imprime el contenido del mensaje que se va a cifrar
+   
+2. **Al recibir mensajes:**
+   - Se muestra el hash SHA-256 recibido en el mensaje
+   - Se muestra el hash SHA-256 calculado localmente
+   - Se indica si la verificación fue exitosa o falló
+
+Esto permite verificar visualmente la integridad de los mensajes durante el desarrollo y pruebas.
 
 Mejoras sugeridas (próximos pasos)
 ----------------------------------

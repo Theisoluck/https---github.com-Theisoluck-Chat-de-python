@@ -29,7 +29,12 @@ def encrypt_json(data: dict, key: bytes) -> str:
     """Cifra un diccionario a JSON seguro con verificación SHA-256."""
     # Añadimos el hash SHA-256 al mensaje original
     data_with_hash = data.copy()
-    data_with_hash["sha256"] = calculate_sha256(data)
+    hash_value = calculate_sha256(data)
+    data_with_hash["sha256"] = hash_value
+    
+    # Mostrar hash en la consola para mensajes
+    if data.get("type") == "msg":
+        logger.info(f"🔐 SHA-256 hash del mensaje: {hash_value}")
     
     plaintext = json.dumps(data_with_hash).encode()
     logger.debug(f"📨 Cifrando mensaje tipo: {data.get('type', 'unknown')} con SHA-256")
@@ -64,6 +69,16 @@ def decrypt_json(encrypted_json: str, key: bytes) -> dict:
         received_hash = data_with_hash.pop("sha256", None)
         if received_hash:
             calculated_hash = calculate_sha256(data_with_hash)
+            
+            # Mostrar información de verificación para mensajes en la consola
+            if data_with_hash.get("type") == "msg":
+                print(f"\n📩 Mensaje recibido - Verificación SHA-256:")
+                print(f"   └─ Tipo: {data_with_hash.get('type')}")
+                print(f"   └─ Usuario: {data_with_hash.get('user', 'Anon')}")
+                print(f"   └─ Hash recibido: {received_hash}")
+                print(f"   └─ Hash calculado: {calculated_hash}")
+                print(f"   └─ Verificación: {'✅ CORRECTA' if received_hash == calculated_hash else '❌ FALLIDA'}")
+                
             if received_hash != calculated_hash:
                 logger.error(f"⚠️ Advertencia: Hash SHA-256 no coincide. Posible manipulación del mensaje.")
                 logger.error(f"Hash recibido: {received_hash}")
