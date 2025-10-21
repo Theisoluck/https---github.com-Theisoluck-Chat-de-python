@@ -77,7 +77,7 @@ def decrypt_json(encrypted_json: str, key: bytes) -> dict:
                 print(f"   └─ Usuario: {data_with_hash.get('user', 'Anon')}")
                 print(f"   └─ Hash recibido: {received_hash}")
                 print(f"   └─ Hash calculado: {calculated_hash}")
-                print(f"   └─ Verificación: {'✅ CORRECTA' if received_hash == calculated_hash else '❌ FALLIDA'}")
+                print(f"   └─ Verificación: {'CORRECTA' if received_hash == calculated_hash else '❌ FALLIDA'}")
                 
             if received_hash != calculated_hash:
                 logger.error(f"⚠️ Advertencia: Hash SHA-256 no coincide. Posible manipulación del mensaje.")
