@@ -117,15 +117,26 @@ La aplicación ahora incluye verificación de integridad mediante SHA-256:
 
 MD5 Hashes de Control de Cambios
 --------------------------------
-Los siguientes hashes MD5 representan el estado actual de los archivos fuente:
+Control de cambios
+------------------
+Antes teníamos una tabla de hashes MD5 estática incluida en el README. Dado que el repositorio puede cambiar frecuentemente, esa tabla se ha eliminado del README para evitar desactualizaciones. Si necesitas comprobar integridad de archivos en tu entorno, puedes calcular los hashes localmente con:
 
-| Archivo            |             MD5 Hash             |
-|--------------------|----------------------------------|
-| client_ws_gui.py   | 581e272cea079160950846dedf1fa6f2 |
-| crypto_utils.py    | 853c5e68ab93c4920f72289c1f5ae777 |
-| server_ws.py       | 8244eee7dbb6298e5019fe69be3027e1 |
+```powershell
+Get-FileHash client_ws_gui.py -Algorithm MD5
+Get-FileHash crypto_utils.py -Algorithm MD5
+Get-FileHash server_ws.py -Algorithm MD5
+```
 
-*Nota: Estos hashes se utilizan para control de versiones y verificación de integridad de los archivos fuente.*
+o usando Python:
+
+```powershell
+python - <<'PY'
+import hashlib
+for f in ['client_ws_gui.py','crypto_utils.py','server_ws.py']:
+   h = hashlib.md5(open(f,'rb').read()).hexdigest()
+   print(f, h)
+PY
+```
 
 Visualización de hashes SHA-256 en consola
 ----------------------------------------

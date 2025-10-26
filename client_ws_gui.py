@@ -1,4 +1,3 @@
-# client_ws_gui.py
 import asyncio
 import json
 import threading
@@ -11,16 +10,22 @@ import socket
 import time
 from crypto_utils import derive_key, encrypt_json, decrypt_json
 
-# Read configuration from environment where possible to avoid hard-coded values
+# =============================
+# Configuración mediante entorno
+# =============================
 SERVER_PORT = int(os.getenv("SERVER_PORT", "8765"))
 BROADCAST_PORT = int(os.getenv("CHAT_BROADCAST_PORT", "9999"))
-DISCOVERY_TOKEN = os.getenv("CHAT_DISCOVERY_TOKEN", "chat_lan_v1")
+DISCOVERY_TOKEN = os.getenv("CHAT_DISCOVERY_TOKEN")
+SECRET_PASSWORD = os.getenv("CHAT_SECRET")
 
-# Secret can be provided through environment variable CHAT_SECRET for
-# better separation of config and code. Falls back to the original for
-# compatibility/testing.
-SECRET_PASSWORD = os.getenv("CHAT_SECRET", "mi-clave-secreta-chat-lan-2024")
+# Validación estricta
+if not SECRET_PASSWORD:
+    raise RuntimeError("❌ CHAT_SECRET no está definido. Establece una contraseña en las variables de entorno.")
+if not DISCOVERY_TOKEN:
+    raise RuntimeError("❌ CHAT_DISCOVERY_TOKEN no está definido. Define un token de descubrimiento compartido.")
+
 key = derive_key(SECRET_PASSWORD)
+
 
 class WSClientThread(threading.Thread):
     def __init__(self, username, server_url, inbound_q, outbound_q, on_disconnect):
@@ -70,6 +75,7 @@ class WSClientThread(threading.Thread):
     def run(self):
         asyncio.run(self.ws_loop())
 
+
 class ChatApp:
     def __init__(self, root):
         self.root = root
@@ -91,35 +97,24 @@ class ChatApp:
         self.btn = tk.Button(entry_frame, text="Enviar 🔒", command=self.send_msg)
         self.btn.pack(side="left", padx=(6, 0))
 
-        # Only ask for the username. Server IP is discovered automatically
-        # via a small UDP broadcast from the server. If discovery fails we
-        # will fall back to an environment-provided SERVER_IP or localhost.
         self.username = simpledialog.askstring("Nombre", "Introduce tu nombre:", parent=self.root) or "Anon"
 
         def discover_server(timeout=3.0):
-            """Listen for a UDP presence broadcast from the server for `timeout` seconds.
-            Returns (host, port) or None on timeout.
-            """
+            """Escucha broadcasts UDP del servidor por `timeout` segundos."""
             end = time.time() + timeout
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             try:
                 sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                # On Windows bind to '' to receive broadcasts
                 sock.bind(("", BROADCAST_PORT))
                 sock.settimeout(0.5)
                 while time.time() < end:
                     try:
                         data, addr = sock.recvfrom(4096)
-                        try:
-                            obj = json.loads(data.decode())
-                        except Exception:
-                            continue
+                        obj = json.loads(data.decode())
                         if obj.get("token") == DISCOVERY_TOKEN:
                             host = obj.get("host") or addr[0]
                             port = int(obj.get("port", SERVER_PORT))
                             return host, port
-                    except socket.timeout:
-                        continue
                     except Exception:
                         continue
             finally:
@@ -130,12 +125,10 @@ class ChatApp:
         if discovered:
             server_ip, server_port = discovered
         else:
-            # Fallbacks: env SERVER_IP (if set) or localhost
             server_ip = os.getenv("SERVER_IP", "127.0.0.1")
             server_port = SERVER_PORT
 
         self.server_url = f"ws://{server_ip}:{server_port}"
-
         self.inbound_q = queue.Queue()
         self.outbound_q = queue.Queue()
 
@@ -177,13 +170,12 @@ class ChatApp:
         if not text:
             return
         payload = {"type": "msg", "user": self.username, "text": text}
-        
-        # Calculate and display SHA-256 hash before encryption
+
         from crypto_utils import calculate_sha256
         msg_hash = calculate_sha256(payload)
         print(f"\n🔒 Enviando mensaje con SHA-256: {msg_hash}")
         print(f"📧 Mensaje original: {payload}")
-        
+
         encrypted_payload = encrypt_json(payload, key)
         self.outbound_q.put(encrypted_payload)
         self.entry.delete(0, "end")
@@ -201,8 +193,8 @@ class ChatApp:
             pass
         self.root.destroy()
 
+
 if __name__ == "__main__":
     root = tk.Tk()
     app = ChatApp(root)
     root.mainloop()
-
