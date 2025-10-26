@@ -6,12 +6,20 @@ import queue
 import tkinter as tk
 from tkinter import simpledialog, scrolledtext
 import websockets
+import os
+import socket
+import time
 from crypto_utils import derive_key, encrypt_json, decrypt_json
 
+# Read configuration from environment where possible to avoid hard-coded values
+SERVER_PORT = int(os.getenv("SERVER_PORT", "8765"))
+BROADCAST_PORT = int(os.getenv("CHAT_BROADCAST_PORT", "9999"))
+DISCOVERY_TOKEN = os.getenv("CHAT_DISCOVERY_TOKEN", "chat_lan_v1")
 
-SERVER_HOST = "192.168.105.42"
-SERVER_PORT = 8765
-SECRET_PASSWORD = "mi-clave-secreta-chat-lan-2024"
+# Secret can be provided through environment variable CHAT_SECRET for
+# better separation of config and code. Falls back to the original for
+# compatibility/testing.
+SECRET_PASSWORD = os.getenv("CHAT_SECRET", "mi-clave-secreta-chat-lan-2024")
 key = derive_key(SECRET_PASSWORD)
 
 class WSClientThread(threading.Thread):
@@ -83,9 +91,50 @@ class ChatApp:
         self.btn = tk.Button(entry_frame, text="Enviar 🔒", command=self.send_msg)
         self.btn.pack(side="left", padx=(6, 0))
 
+        # Only ask for the username. Server IP is discovered automatically
+        # via a small UDP broadcast from the server. If discovery fails we
+        # will fall back to an environment-provided SERVER_IP or localhost.
         self.username = simpledialog.askstring("Nombre", "Introduce tu nombre:", parent=self.root) or "Anon"
-        server_ip = simpledialog.askstring("Servidor", "IP del servidor:", parent=self.root) or SERVER_HOST
-        self.server_url = f"ws://{server_ip}:{SERVER_PORT}"
+
+        def discover_server(timeout=3.0):
+            """Listen for a UDP presence broadcast from the server for `timeout` seconds.
+            Returns (host, port) or None on timeout.
+            """
+            end = time.time() + timeout
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            try:
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                # On Windows bind to '' to receive broadcasts
+                sock.bind(("", BROADCAST_PORT))
+                sock.settimeout(0.5)
+                while time.time() < end:
+                    try:
+                        data, addr = sock.recvfrom(4096)
+                        try:
+                            obj = json.loads(data.decode())
+                        except Exception:
+                            continue
+                        if obj.get("token") == DISCOVERY_TOKEN:
+                            host = obj.get("host") or addr[0]
+                            port = int(obj.get("port", SERVER_PORT))
+                            return host, port
+                    except socket.timeout:
+                        continue
+                    except Exception:
+                        continue
+            finally:
+                sock.close()
+            return None
+
+        discovered = discover_server(timeout=3.0)
+        if discovered:
+            server_ip, server_port = discovered
+        else:
+            # Fallbacks: env SERVER_IP (if set) or localhost
+            server_ip = os.getenv("SERVER_IP", "127.0.0.1")
+            server_port = SERVER_PORT
+
+        self.server_url = f"ws://{server_ip}:{server_port}"
 
         self.inbound_q = queue.Queue()
         self.outbound_q = queue.Queue()

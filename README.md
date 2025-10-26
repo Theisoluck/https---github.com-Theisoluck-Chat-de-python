@@ -56,7 +56,32 @@ python server_ws.py
 2) Ejecutar el cliente en cualquier equipo de la LAN que pueda alcanzar al servidor:
 python client_ws_gui.py
 
-Nota: al abrir el cliente se solicitará "Nombre" y "IP del servidor". Introduce la IP LAN del host donde corre `server_ws.py`.
+Nota: en la versión actualizada el cliente SOLO solicitará el "Nombre". El cliente intentará descubrir automáticamente el servidor en la LAN mediante un pequeño paquete UDP de presencia enviado por el servidor. Si no se encuentra ningún servidor, el cliente usará la variable de entorno `SERVER_IP` o `127.0.0.1` como respaldo.
+
+Auto-descubrimiento del servidor
+--------------------------------
+Para hacer la experiencia más automática, el servidor ahora transmite periódicamente (UDP broadcast) un pequeño paquete de presencia en el puerto 9999 por defecto. El cliente escucha durante unos segundos al iniciar y, si recibe ese paquete, se conecta automáticamente al servidor anunciado. Esto evita pedir la IP del servidor en el cliente.
+
+Variables de entorno útiles
+--------------------------
+- `CHAT_SECRET`: (opcional) contraseña/secret usado para derivar la clave AES. Ponerlo en el entorno es preferible a editar el código.
+- `SERVER_PORT`: (opcional) puerto WebSocket del servidor (por defecto `8765`).
+- `CHAT_BROADCAST_PORT`: (opcional) puerto UDP usado para presence/discovery (por defecto `9999`).
+- `CHAT_DISCOVERY_TOKEN`: (opcional) token simple para validar paquetes de discovery (por defecto `chat_lan_v1`).
+- `SERVER_IP`: (opcional) respaldo que usa el cliente si no detecta un servidor por broadcast.
+
+Cómo ejecutar con variables de entorno (ejemplos - PowerShell)
+-------------------------------------------------------------
+# Establecer el secret en la sesión y ejecutar el servidor
+$env:CHAT_SECRET = 'mi-clave-secreta-chat-lan-2024'
+python server_ws.py
+
+# Ejecutar el cliente (solo pedirá nombre)
+python client_ws_gui.py
+
+Notas de seguridad
+------------------
+El mecanismo de discovery por UDP está pensado para redes LAN controladas y fines educativos. No es una solución segura por sí misma: cualquiera en la LAN puede emitir paquetes y hacerse pasar por servidor si conoce el token. Para entornos de producción se recomienda usar TLS, autenticación y un mecanismo de discovery autenticado.
 
 Verificaciones rápidas
 ----------------------
