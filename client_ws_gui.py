@@ -5,6 +5,7 @@ import queue
 import tkinter as tk
 from tkinter import simpledialog, scrolledtext
 import websockets
+import ssl
 import os
 import socket
 import time
@@ -17,6 +18,10 @@ SERVER_PORT = int(os.getenv("SERVER_PORT", "8765"))
 BROADCAST_PORT = int(os.getenv("CHAT_BROADCAST_PORT", "9999"))
 DISCOVERY_TOKEN = os.getenv("CHAT_DISCOVERY_TOKEN")
 SECRET_PASSWORD = os.getenv("CHAT_SECRET")
+
+# Configuración SSL/TLS
+USE_SSL = os.getenv("USE_SSL", "true").lower() == "true"
+SSL_VERIFY = os.getenv("SSL_VERIFY", "false").lower() == "true"  # Para certificados autofirmados
 
 # Validación estricta
 if not SECRET_PASSWORD:
@@ -41,12 +46,29 @@ class WSClientThread(threading.Thread):
         self.stop_flag.set()
 
     async def ws_loop(self):
+        # Configurar SSL context si está habilitado
+        ssl_context = None
+        if USE_SSL:
+            ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+            if not SSL_VERIFY:
+                # Aceptar certificados autofirmados (solo para desarrollo/LAN)
+                ssl_context.check_hostname = False
+                ssl_context.verify_mode = ssl.CERT_NONE
+                print("⚠️  Verificación SSL deshabilitada (certificados autofirmados aceptados)")
+            else:
+                # Verificación completa (para producción)
+                ssl_context.check_hostname = True
+                ssl_context.verify_mode = ssl.CERT_REQUIRED
+                print("✅ Verificación SSL completa habilitada")
+        
         try:
-            async with websockets.connect(self.server_url) as ws:
+            async with websockets.connect(self.server_url, ssl=ssl_context) as ws:
                 join_msg = encrypt_json({"type": "join", "user": self.username}, key)
                 await ws.send(join_msg)
                 self.inbound_q.put({"type": "system", "text": f"Conectado a {self.server_url} como {self.username}"})
-                self.inbound_q.put({"type": "system", "text": "🔐 Comunicación cifrada activa"})
+                
+                protocol_info = "WSS (WebSocket Secure)" if USE_SSL else "WS (sin cifrado de transporte)"
+                self.inbound_q.put({"type": "system", "text": f"🔐 Comunicación cifrada activa + {protocol_info}"})
 
                 async def recv_task():
                     async for encrypted_raw in ws:
@@ -128,7 +150,9 @@ class ChatApp:
             server_ip = os.getenv("SERVER_IP", "127.0.0.1")
             server_port = SERVER_PORT
 
-        self.server_url = f"ws://{server_ip}:{server_port}"
+        # Usar wss:// si SSL está habilitado, ws:// si no
+        protocol = "wss" if USE_SSL else "ws"
+        self.server_url = f"{protocol}://{server_ip}:{server_port}"
         self.inbound_q = queue.Queue()
         self.outbound_q = queue.Queue()
 

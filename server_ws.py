@@ -2,6 +2,7 @@ import asyncio
 import json
 import os
 import socket
+import ssl
 from datetime import datetime
 import websockets
 from crypto_utils import derive_key, encrypt_json, decrypt_json
@@ -16,6 +17,11 @@ BROADCAST_PORT = int(os.getenv("CHAT_BROADCAST_PORT", "9999"))
 BROADCAST_INTERVAL = float(os.getenv("CHAT_BROADCAST_INTERVAL", "2.0"))
 DISCOVERY_TOKEN = os.getenv("CHAT_DISCOVERY_TOKEN")
 SECRET_PASSWORD = os.getenv("CHAT_SECRET")
+
+# Configuración SSL/TLS
+USE_SSL = os.getenv("USE_SSL", "true").lower() == "true"
+SSL_CERT_FILE = os.getenv("SSL_CERT_FILE", "server.crt")
+SSL_KEY_FILE = os.getenv("SSL_KEY_FILE", "server.key")
 
 if not SECRET_PASSWORD:
     raise RuntimeError("❌ CHAT_SECRET no está definido.")
@@ -84,7 +90,28 @@ async def handler(ws):
 
 
 async def main():
-    print(f"🔐 Servidor escuchando en ws://{HOST}:{PORT}")
+    protocol = "wss" if USE_SSL else "ws"
+    print(f"🔐 Servidor escuchando en {protocol}://{HOST}:{PORT}")
+    
+    # Configurar SSL context si está habilitado
+    ssl_context = None
+    if USE_SSL:
+        if not os.path.exists(SSL_CERT_FILE) or not os.path.exists(SSL_KEY_FILE):
+            print(f"❌ ERROR: Archivos SSL no encontrados:")
+            print(f"   Certificado: {SSL_CERT_FILE}")
+            print(f"   Llave: {SSL_KEY_FILE}")
+            print(f"\n💡 Genera los certificados ejecutando:")
+            print(f"   python generate_ssl_cert.py")
+            raise FileNotFoundError("Certificados SSL no encontrados")
+        
+        ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ssl_context.load_cert_chain(SSL_CERT_FILE, SSL_KEY_FILE)
+        print(f"✅ SSL/TLS habilitado")
+        print(f"   📄 Certificado: {SSL_CERT_FILE}")
+        print(f"   🔑 Llave: {SSL_KEY_FILE}")
+    else:
+        print("⚠️  SSL/TLS deshabilitado (conexión NO segura)")
+        print("   Para habilitar SSL, define: USE_SSL=true")
 
     async def presence_broadcaster():
         def get_local_ip():
@@ -112,7 +139,14 @@ async def main():
     broadcaster_task = asyncio.create_task(presence_broadcaster())
 
     try:
-        async with websockets.serve(handler, HOST, PORT, ping_interval=20, ping_timeout=20):
+        async with websockets.serve(
+            handler, 
+            HOST, 
+            PORT, 
+            ssl=ssl_context,  # Aquí se aplica el SSL context
+            ping_interval=20, 
+            ping_timeout=20
+        ):
             await asyncio.Future()
     finally:
         broadcaster_task.cancel()
