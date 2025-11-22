@@ -23,6 +23,10 @@ USE_SSL = os.getenv("USE_SSL", "true").lower() == "true"
 SSL_CERT_FILE = os.getenv("SSL_CERT_FILE", "server.crt")
 SSL_KEY_FILE = os.getenv("SSL_KEY_FILE", "server.key")
 
+# Configuración de seguridad con valores por defecto
+SECRET_PASSWORD = os.getenv("CHAT_SECRET", "mi-clave-secreta-chat-lan-2024")
+DISCOVERY_TOKEN = os.getenv("CHAT_DISCOVERY_TOKEN", "chat_lan_discovery")
+
 if not SECRET_PASSWORD:
     raise RuntimeError("❌ CHAT_SECRET no está definido.")
 if not DISCOVERY_TOKEN:

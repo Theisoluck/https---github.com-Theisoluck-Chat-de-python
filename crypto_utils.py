@@ -13,14 +13,13 @@ logger = logging.getLogger(__name__)
 # =============================
 # Configuración sin hard coding
 # =============================
-_env_salt_b64 = os.getenv("CHAT_SALT_BASE64")
-if not _env_salt_b64:
-    raise RuntimeError("❌ CHAT_SALT_BASE64 no está definido. Define una sal en base64 para el cifrado.")
+_env_salt_b64 = os.getenv("CHAT_SALT_BASE64", "U2FsdEZvckNoYXRMQU4yMDI0")  # Valor por defecto
 
 try:
     FIXED_SALT = base64.b64decode(_env_salt_b64)
 except Exception:
-    raise ValueError("❌ CHAT_SALT_BASE64 no es un valor base64 válido.")
+    # Fallback a una sal por defecto si hay error
+    FIXED_SALT = b"SaltForChatLAN2024"
 
 
 def derive_key(password: str):

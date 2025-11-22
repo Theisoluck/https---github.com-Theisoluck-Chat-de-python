@@ -16,18 +16,12 @@ from crypto_utils import derive_key, encrypt_json, decrypt_json
 # =============================
 SERVER_PORT = int(os.getenv("SERVER_PORT", "8765"))
 BROADCAST_PORT = int(os.getenv("CHAT_BROADCAST_PORT", "9999"))
-DISCOVERY_TOKEN = os.getenv("CHAT_DISCOVERY_TOKEN")
-SECRET_PASSWORD = os.getenv("CHAT_SECRET")
+DISCOVERY_TOKEN = os.getenv("CHAT_DISCOVERY_TOKEN", "chat_lan_discovery")
+SECRET_PASSWORD = os.getenv("CHAT_SECRET", "mi-clave-secreta-chat-lan-2024")
 
 # Configuración SSL/TLS
 USE_SSL = os.getenv("USE_SSL", "true").lower() == "true"
 SSL_VERIFY = os.getenv("SSL_VERIFY", "false").lower() == "true"  # Para certificados autofirmados
-
-# Validación estricta
-if not SECRET_PASSWORD:
-    raise RuntimeError("❌ CHAT_SECRET no está definido. Establece una contraseña en las variables de entorno.")
-if not DISCOVERY_TOKEN:
-    raise RuntimeError("❌ CHAT_DISCOVERY_TOKEN no está definido. Define un token de descubrimiento compartido.")
 
 key = derive_key(SECRET_PASSWORD)
 
