@@ -183,6 +183,22 @@ MD5 Hashes de Control de Cambios
 --------------------------------
 Los siguientes hashes MD5 representan el estado actual de los archivos fuente:
 
+Add SHA-256 hash
+
+| Archivo            |             MD5 Hash             |
+|--------------------|----------------------------------|
+| client_ws_gui.py   | 581e272cea079160950846dedf1fa6f2 |
+| crypto_utils.py    | 853c5e68ab93c4920f72289c1f5ae777 |
+| server_ws.py       | 8244eee7dbb6298e5019fe69be3027e1 |
+
+Revome the ´HardCoding´
+
+| Archivo            |             MD5 Hash             |
+|--------------------|----------------------------------|
+| client_ws_gui.py   | 4061d8ad323cc6b681f8a9984d24719c |
+| crypto_utils.py    | 683b53584a93cc565921130c31b13254 |
+| server_ws.py       | c4db766b13aa37213b0ac5ecd8b566f9 |
+
 | Archivo                |             MD5 Hash             |
 |------------------------|----------------------------------|
 | client_ws_gui.py       | 48d55f5923e01dbd323bf7d11ee95e4f |
